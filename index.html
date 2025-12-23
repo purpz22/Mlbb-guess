@@ -6,13 +6,36 @@
     <title>Guess The Hero</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        /* Base Styling */
         body { background: radial-gradient(circle at center, #1a1c2e 0%, #000000 100%); color: white; font-family: sans-serif; height: 100vh; overflow: hidden; }
         .glass { background: rgba(18, 18, 28, 0.9); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); border-radius: 20px; }
-        #hero-img { width: 220px; height: 220px; object-fit: cover; border-radius: 50%; border: 4px solid #8b5cf6; transition: 0.3s; }
+        .hidden { display: none !important; }
+
+        /* Image Specific */
+        #hero-img { width: 220px; height: 220px; object-fit: cover; border-radius: 50%; border: 4px solid #8b5cf6; transition: all 0.3s ease-in-out; }
         .grayscale { filter: grayscale(100%); }
         .solved { border-color: #4ade80 !important; filter: none !important; box-shadow: 0 0 50px #4ade80; }
-        #timer-bar { height: 6px; background: #8b5cf6; width: 0%; transition: width 0.2s linear; }
-        .hidden { display: none !important; }
+        .hard-mode-active { border-color: #ef4444 !important; animation: shake 0.5s infinite; }
+        .series-skin-display { border-radius: 20px; border-color: #f59e0b; } /* Square for skins */
+
+        /* Animations */
+        @keyframes shake {
+            0% { transform: translate(1px, 1px) rotate(0deg); } 10% { transform: translate(-1px, -2px) rotate(-1deg); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); } 30% { transform: translate(3px, 2px) rotate(0deg); }
+            40% { transform: translate(1px, -1px) rotate(1deg); } 50% { transform: translate(-1px, 2px) rotate(-1deg); }
+            60% { transform: translate(-3px, 1px) rotate(0deg); } 70% { transform: translate(3px, 1px) rotate(-1deg); }
+            80% { transform: translate(-1px, -1px) rotate(1deg); } 90% { transform: translate(1px, 2px) rotate(0deg); }
+            100% { transform: translate(1px, -2px) rotate(-1deg); }
+        }
+
+        /* Timer Bar */
+        #timer-bar { height: 6px; background: linear-gradient(90deg, #8b5cf6, #3b82f6); width: 0%; transition: width 0.2s linear; }
+
+        /* Custom Scrollbar for Leaderboard */
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #1a1c2e; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #4a5568; border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #6b7280; }
     </style>
 </head>
 <body class="flex items-center justify-center relative">
@@ -34,7 +57,7 @@
             <div class="absolute top-0 left-0 w-full bg-white/10"><div id="timer-bar"></div></div>
             
             <div class="flex justify-center my-6">
-                <img id="hero-img" src="https://placehold.co/200x200/222/fff?text=LOADING..." alt="Hero">
+                <img id="hero-img" src="https://placehold.co/220x220/222/fff?text=LOADING..." alt="Hero">
             </div>
 
             <!-- STATUS -->
@@ -63,11 +86,10 @@
 
     <!-- LOGIC -->
     <script type="module">
-        // ✅ CORRECT BROWSER IMPORTS
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getDatabase, ref, onValue, set, get } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-        // ✅ YOUR CONFIG
+        // Firebase Config (Your specific keys)
         const firebaseConfig = {
             apiKey: "AIzaSyCPSU7YrNL0M9j0EFUBRHDoufpW9bQlUsI",
             authDomain: "guesshero-e1180.firebaseapp.com",
@@ -108,19 +130,40 @@
 
         // --- GAME LISTENERS ---
         function initGame() {
-            // 1. Listen to State
+            // 1. Listen to Game State
             onValue(ref(db, 'gameState'), snap => {
                 const data = snap.val();
-                if(!data) return; // DB Empty
+                if(!data) return; 
 
                 el.img.src = data.imgUrl;
                 
+                // Reset styling before applying new ones
+                el.img.className = ''; 
+                el.img.classList.add('object-cover'); // Ensure object-fit is applied
+
+                // Apply Hard Mode / Series Skin styling first
+                if (data.isHardMode) {
+                    el.img.classList.add('hard-mode-active');
+                    el.img.style.filter = 'invert(100%) hue-rotate(180deg)'; // Inverted for hard mode
+                } else {
+                     el.img.style.filter = ''; // Clear any existing filter
+                }
+
+                if (data.isSeriesSkin) { // Check for series skin type
+                    el.img.classList.add('series-skin-display');
+                } else {
+                    el.img.classList.remove('series-skin-display');
+                }
+
                 if(data.phase === 'playing') {
-                    // NEW ROUND START
                     gameActive = true;
                     currentHero = data.currentHero;
                     
-                    el.img.className = "grayscale"; // Gray
+                    // Apply grayscale if not hard mode and option is on
+                    if (!data.isHardMode && data.isGrayscale) {
+                        el.img.classList.add('grayscale');
+                    }
+
                     el.status.textContent = "GUESS THE HERO!";
                     el.status.className = "text-3xl font-black text-green-400 animate-bounce";
                     
@@ -130,9 +173,8 @@
                     el.input.focus();
                 } 
                 else if (data.phase === 'ended') {
-                    // ROUND OVER
                     gameActive = false;
-                    el.img.className = "solved"; // Color
+                    el.img.classList.add('solved'); // Green border, no filter
                     el.status.textContent = "ANSWER: " + data.currentHero;
                     el.status.className = "text-3xl font-black text-red-500";
                     
@@ -162,8 +204,11 @@
                 document.getElementById('player-count').textContent = `${sorted.length} Players`;
                 
                 el.board.innerHTML = "";
+                if(sorted.length === 0) {
+                    el.board.innerHTML = '<li class="text-center text-gray-500 mt-10">No scores yet...</li>';
+                }
                 sorted.forEach(([n, score], i) => {
-                    let col = i===0 ? "text-yellow-400" : "text-white";
+                    let col = i===0 ? "text-yellow-400" : (i===1 ? "text-gray-300" : (i===2 ? "text-orange-400" : "text-white"));
                     el.board.innerHTML += `
                         <li class="flex justify-between bg-white/5 p-2 rounded border border-white/5">
                             <span class="${col} font-bold">#${i+1} ${n}</span>
@@ -179,7 +224,6 @@
             const guess = el.input.value.trim().toUpperCase();
 
             if(guess === currentHero.toUpperCase()) {
-                // Correct
                 const roundId = (await get(ref(db, 'gameState/roundId'))).val();
                 const myWinRef = ref(db, `roundWinners/${roundId}/${myName}`);
                 
